@@ -17,9 +17,9 @@ DESCRIPTION = ""\
                         
 -------------------------------------------------------
 
-By Quentin Hardy (quentin.hardy@bt.com or quentin.hardy@protonmail.com)
+By Quentin Hardy (quentin.hardy@protonmail.com or quentin.hardy@bt.com)
 '''
-CURRENT_VERSION = "Version 1.0 - 2018/02/15"
+CURRENT_VERSION = "Version 2.1 - 2020/03/08"
 DEFAULT_TIME_SLEEP = 0
 DEFAULT_LOGIN_TIMEOUT = 5
 DEFAULT_CHARSET = 'UTF-8'

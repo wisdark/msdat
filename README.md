@@ -13,27 +13,46 @@ Usage examples of MSDAT:
 
 * You have a Microsoft database listening remotely and you want to __find valid credentials__ in order to connect to the database
 * You have a valid Microsoft SQL account on a database and you want to __escalate your privileges__
-* You have a valid Microsoft SQL account and you want to __execute commands on the operating system__ hosting this DB (xp_cmdshell)
+* You have a valid Microsoft SQL account and you want to __execute commands on the operating system__ hosting this DB (e.g. xp_cmdshell, OLE Automation, Agent Jobs)
 
-Tested on Microsof SQL database 2005, 2008 and 2012.
+Tested on Microsof SQL database 2005, 2008, 2012, 2014 and 2016.
+
+Python 3 compatible __only__ since version 2.0.
 
 Changelog
 ====
-
+* Version __2.1__ (2020/03/04) :
+  * Option _--nmap-file_ for loading all mssql services from a XML nmap file (_python-libnmap_ has to be installed)
+* Version __2.0__ (2020/03/04) :
+  * Python 2 to __Python 3__: MSDAT is compatible with __Python 3 only__ now. __Python 2 is not supported__.
+  * Separator option in password guesser module
+  * Improvements in error catching in --put-file option of _xpcmdshell_ module
+  * Improvements in reverse shell option of _jobs_ mobule
+  * OLE automation module - command execution improvements
+  * OLE automation module - Powershell reverse shell implemented
+  * new option for printing list of agents jobs and their code: _--print-jobs_
+* Version __1.2__ (2020/02/26) :
+  * New method in xpCmdShell module: Upload a binary file with powershell (--put-file)
+  * Improvement in oleAutomation: upload the file in binary mode instead of text file
+* Version __1.1__ (2019/07/12) :
+  * many other default credentials. Thanks to https://github.com/govolution/betterdefaultpasslist/
 * Version __1.0__ (2017/02/15) :
- * first version realeased
+  * first version realeased
 
-
+  
 Features
 ====
 
-Thanks to MSDAT (**M**icro**s**oft SQL **D**atabase **A**ttacking **T**ool), you can:
+Thanks to MSDAT (**M**icro**s**oft SQL **D**atabase **A**ttacking **T**ool), you can (no exhaustive list):
 
 * __get technical information__ (ex: database version) of a MSSQL database without to be authenticated
+* load a nnmap file for scanning all MSSQL targets
 * __search MSSQL accounts__ with a dictionnary attack
 * __test each login as password__ (authentication required)
 * __get a windows shell__ on the database server with
   * xp_cmdshell
+  * OLE Automation
+  * Jobs
 * __download__ files remotely with:
   * OLE Automation
   * bulkinsert
@@ -61,6 +80,7 @@ Thanks to MSDAT (**M**icro**s**oft SQL **D**atabase **A**ttacking **T**ool), you
   * *xp_availablemedia*
 * __create folder__ with:
   * *xp_create_subdir*
+* search sensitive data in tables (e.g. credentials)  
  
 Installation
 ====
@@ -72,17 +92,66 @@ In ubuntu:
 sudo apt-get install freetds-dev 
 ```
 or download freetds on [http://www.freetds.org/](http://www.freetds.org/)
+
+Install python dependencies:
 ```bash
-sudo pip install cython colorlog termcolor pymssql argparse
-sudo pip install argcomplete && sudo activate-global-python-argcomplete
+sudo pip3 install cython colorlog termcolor pymssql argparse python-libnmap
+sudo pip3 install argcomplete && sudo activate-global-python-argcomplete
 ```
-Add "use ntlmv2 = yes" in your freetds configuration file (ex: /etc/freetds/freetds.conf or /usr/local/etc/freetds.conf).
+Add "use ntlmv2 = yes" in your freetds configuration file (ex: ```/etc/freetds/freetds.conf``` or ```/usr/local/etc/freetds.conf```).
 Example:
 ```bash
 [global]
         # TDS protocol version
         tds version = 8.0
         use ntlmv2 = yes
+```
+How to begin
+====
+
+```bash
+python3 msdat.py -h
+usage: msdat.py [-h] [--version]
+                {all,mssqlinfo,passwordguesser,passwordstealer,xpcmdshell,jobs,smbauthcapture,oleautomation,bulkopen,xpdirectory,trustworthype,userlikepwd,search,cleaner}
+                ...
+
+               _   _  __  __   _  ___ 
+              | \_/ |/ _||  \ / \|_ _|
+              | \_/ |\_ \| o ) o || | 
+              |_| |_||__/|__/|_n_||_| 
+                        
+------------------------------------------------------
+ _   _  __            __           _           ___ 
+| \_/ |/ _|         |  \         / \         |_ _|
+| \_/ |\_ \         | o )         o |         | | 
+|_| |_||__/icrosoft |__/atabase |_n_|ttacking |_|ool 
+                        
+-------------------------------------------------------
+
+By Quentin Hardy (quentin.hardy@protonmail.com or quentin.hardy@bt.com)
+
+positional arguments:
+  {all,mssqlinfo,passwordguesser,passwordstealer,xpcmdshell,jobs,smbauthcapture,oleautomation,bulkopen,xpdirectory,trustworthype,userlikepwd,search,cleaner}
+                        
+                        Choose a main command
+    all                 to run all modules in order to know what it is possible to do
+    mssqlinfo           to get information without authentication
+    passwordguesser     to know valid credentials
+    passwordstealer     to get hashed passowrds
+    xpcmdshell          to get a shell
+    jobs                to execute system commands
+    smbauthcapture      to capture a SMB authentication
+    oleautomation       to read/write file and execute system commands
+    bulkopen            to read a file and scan ports
+    xpdirectory         to list files/drives and to create directories
+    trustworthype       to become sysadmin with the trustwothy database method
+    userlikepwd         to try each MSSQL username stored in the DB like the corresponding pwd
+    search              to search in column names
+    cleaner             clean local traces
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
 ```
 
 Examples

