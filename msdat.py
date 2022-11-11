@@ -76,6 +76,9 @@ def runAllModulesOnEachHost(args):
 	'''
 	if args['nmap-file'] != None:
 		nmapReport = NmapParser.parse_fromfile(args['nmap-file'])
+		givenUser, givenPwd = None, None #Initial users
+		if args['user'] != None:
+			givenUser, givenPwd = args['user'], args['password']
 		for aHost in nmapReport.hosts:
 			hostAdress = aHost.address
 			for aService in aHost.services:
@@ -85,13 +88,18 @@ def runAllModulesOnEachHost(args):
 					hostPort = aService.port
 					logging.info("Server {0} is running a MSSQL server (TCP) on {1}: {2}".format(hostAdress, hostPort, repr(aService)))
 					args['host'], args['port'] = hostAdress, hostPort
-					args['user'], args['password'] = None, None
+					args['user'], args['password'] = givenUser, givenPwd
+					args['print'].bigTitle("Working on this specific service now")
 					runAllModules(args)
 	elif args['hostlist'] != None:
 		hosts = getHostsFromFile(args['hostlist'])
+		givenUser, givenPwd = None, None #Initial users
+		if args['user'] != None:
+			givenUser, givenPwd = args['user'], args['password']
 		for aHost in hosts:
 			args['host'], args['port'] = aHost[0], aHost[1]
-			args['user'], args['password'] = None, None
+			args['user'], args['password'] = givenUser, givenPwd
+			args['print'].bigTitle("Working on this specific service now")
 			runAllModules(args)
 	else:
 		runAllModules(args)
@@ -134,10 +142,18 @@ def runAllModules(args):
 				if (database in connectionInformation) == False: connectionInformation[database] = [[aLogin,aPassword]]
 				else : connectionInformation[database].append([aLogin,aPassword])
 	#C)ALL OTHERS MODULES
+	needRunUsernamelikepassword = True
 	for aDatabase in list(connectionInformation.keys()):
 		for loginAndPass in connectionInformation[aDatabase]:
 			args['database'] , args['user'], args['password'] = aDatabase, loginAndPass[0],loginAndPass[1]
 			args['print'].title("Testing the '{0}' database with the account {1}/{2}".format(database,args['user'], args['password']))
+			#Checking if connection is possible
+			mssql = Mssql(args)
+			status = mssql.connect(printErrorAsDebug=False)
+			if status != True:
+				logging.error("Connection impossible with this information. Stopping for this service...")
+				needRunUsernamelikepassword = False
+				break
 			#C.0)Trustworthy module (Privilege escalation)
 			trustworthyPE = TrustworthyPE(args)
 			status = trustworthyPE.connect()
@@ -169,8 +185,9 @@ def runAllModules(args):
 			bulkOpen.closeConnection()
 	
 	#usernamelikepassword
-	args['run'] = True
-	runUsernameLikePassword(args)
+	if needRunUsernamelikepassword == True:
+		args['run'] = True
+		runUsernameLikePassword(args)
 		
 def main():
 	#Parse Args
@@ -208,7 +225,14 @@ def main():
 	PPpassguesser.add_argument('--force-retry',dest='force-retry',action='store_true',help='allow to test multiple passwords for a user without ask you')
 	PPpassguesser.add_argument('-l', dest='hostlist', required=False, help='filename which contains hosts (one ip on each line: "ip:port" or "ip" only)')
 	PPpassguesser.add_argument('--nmap-file', dest='nmap-file', default=None, required=False, help='xml nmap file for getting targets')
-	PPpassguesser.add_argument('--search',dest='search',action='store_true',help='search valid credentials')
+	#PPpassguesser.add_argument('--search',dest='search',action='store_true',help='search valid credentials')
+	#1.3- Parent parser: Password Guesser for all module
+	PPpassguesserlight = argparse.ArgumentParser(add_help=False,formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=MAX_HELP_POSITION))
+	PPpassguesserlight._optionals.title = "password guesser options (in all module)"
+	PPpassguesserlight.add_argument('--force-retry',dest='force-retry',action='store_true',help='allow to test multiple passwords for a user without ask you')
+	#PPpassguesserlight.add_argument('-l', dest='hostlist', required=False, help='filename which contains hosts (one ip on each line: "ip:port" or "ip" only)')
+	#PPpassguesserlight.add_argument('--nmap-file', dest='nmap-file', default=None, required=False, help='xml nmap file for getting targets')
+	#PPpassguesserlight.add_argument('--search',dest='search',action='store_true',help='search valid credentials')
 	#1.3- Parent parser: MssqlInfo
 	PPmssqlinfo = argparse.ArgumentParser(add_help=False,formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=MAX_HELP_POSITION))
 	PPmssqlinfo._optionals.title = "mssql info options"
@@ -300,14 +324,19 @@ def main():
 	PPsearch.add_argument('--pwd-column-names',dest='pwd-column-names',default=None,action='store_true',help='search password patterns in all collumns')
 	PPsearch.add_argument('--no-show-empty-columns',dest='no-show-empty-columns',action='store_true',help="don't show columns if columns are empty")
 	PPsearch.add_argument('--test-module',dest='test-module',action='store_true',help='test the module before use it')
+    #1.14- Parent parser: All
+	PPall = argparse.ArgumentParser(add_help=False,formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=MAX_HELP_POSITION))
+	PPall._optionals.title = "all module commands"
+	PPall.add_argument('-l', dest='hostlist', required=False, help='filename which contains hosts (one ip on each line: "ip:port" or "ip" only)')
+	PPall.add_argument('--nmap-file', dest='nmap-file', default=None, required=False, help='xml nmap file for getting targets')
 	#2- main commands
 	subparsers = parser.add_subparsers(help='\nChoose a main command')
 	#2.a- Run all modules
-	parser_all = subparsers.add_parser('all',parents=[PPoptional,PPconnection,PPoutput,PPpassguesser],help='to run all modules in order to know what it is possible to do')	
+	parser_all = subparsers.add_parser('all',parents=[PPoptional,PPconnection,PPoutput,PPpassguesserlight, PPall],help='to run all modules in order to know what it is possible to do')	
 	parser_all.set_defaults(func=runAllModulesOnEachHost,auditType='all')
 	#2.b- Run mssqlInfo modules
-	parser_all = subparsers.add_parser('mssqlinfo',parents=[PPoptional,PPconnection,PPoutput,PPmssqlinfo],help='to get information without authentication')	
-	parser_all.set_defaults(func=runMssqlInfoModule,auditType='mssqlinfo')
+	parser_mssqlInfo = subparsers.add_parser('mssqlinfo',parents=[PPoptional,PPconnection,PPoutput,PPmssqlinfo],help='to get information without authentication')	
+	parser_mssqlInfo.set_defaults(func=runMssqlInfoModule,auditType='mssqlinfo')
 	#2.c- PasswordGuesser
 	parser_passwordGuesser = subparsers.add_parser('passwordguesser',parents=[PPoptional,PPconnection,PPpassguesser,PPoutput],help='to know valid credentials')
 	parser_passwordGuesser.set_defaults(func=runPasswordGuesserModule,auditType='passwordGuesser')

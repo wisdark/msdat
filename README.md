@@ -21,6 +21,9 @@ Python 3 compatible __only__ since version 2.0.
 
 Changelog
 ====
+* Version __2.2__ (2022/04/29) :
+  * _--nmap-file_ and _-l_ can be used in _all_ module and _passwordguesser_ module now. You can give a list of targets with _-l_ or a nmap file with _--nmap-file_.
+  * Multiple bug fixes
 * Version __2.1__ (2020/03/04) :
   * Option _--nmap-file_ for loading all mssql services from a XML nmap file (_python-libnmap_ has to be installed)
 * Version __2.0__ (2020/03/04) :
@@ -94,6 +97,11 @@ sudo apt-get install freetds-dev
 or download freetds on [http://www.freetds.org/](http://www.freetds.org/)
 
 Install python dependencies:
+```bash
+sudo pip3 install -r requirements.txt
+sudo activate-global-python-argcomplete
+```
+or
 ```bash
 sudo pip3 install cython colorlog termcolor pymssql argparse python-libnmap
 sudo pip3 install argcomplete && sudo activate-global-python-argcomplete
