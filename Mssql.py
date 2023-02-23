@@ -3,7 +3,7 @@
 
 import logging
 from Utils import cleanString, ErrorClass
-import pymssql,pymssql._mssql, decimal
+import pymssql, decimal
 from Constants import *
 from progressbar import *
 
@@ -17,6 +17,9 @@ class Mssql ():
 	ERROR_ACCOUNT_INVALID = "Login failed for user "
 	ERROR_UNTRUSTED_DOMAIN = "The login is from an untrusted domain and cannot be used with Windows authentication." #Credentials are not valid
 	ERROR_UNABLE_TO_CONNECT = "Unable to connect:"
+	MS2019_BANNER = "Microsoft SQL Server 2019"
+	MS2017_BANNER = "Microsoft SQL Server 2017"
+	MS2016_BANNER = "Microsoft SQL Server 2016"
 	MS2014_BANNER = "Microsoft SQL Server 2014"
 	MS2012_BANNER = "Microsoft SQL Server 2012"
 	MS2008_BANNER = "Microsoft SQL Server 2008"
@@ -113,7 +116,7 @@ class Mssql ():
 		if self.args['connection'] != None :
 			try: self.args['connection'].close()
 			except Exception as e: return ErrorClass(e)
-			else: 	
+			else:   
 				logging.debug("Connection closed")
 				return True
 		else:
@@ -121,7 +124,7 @@ class Mssql ():
 			logging.error(errorMsg)
 			return ErrorClass(errorMsg)
 
-	def executeRequest (self, request, ld=[], noResult=False):
+	def executeRequest (self, request, ld=[], noResult=False, autoLD=False):
 		'''
 		Execute request
 		ld: list containing all name of columns
@@ -142,19 +145,22 @@ class Mssql ():
 				try:
 					results = self.args['cursor'].fetchall()
 				except Exception as e: return ErrorClass(e)
-				if ld==[] : return results
-				else :
-					values = []
-					for line in results:
-						dico = {}
-						for i in range(len(line)): dico[ld[i]] = line[i]
-						values.append(dico)
-					return values
-				return dataList
+				if ld==[]:
+					if autoLD == True:
+						ld = [item[0] for item in self.args['cursor'].description]
+					else:
+						return results
+				values = []
+				for line in results:
+					dico = {}
+					for i in range(len(line)): 
+						dico[ld[i]] = line[i]
+					values.append(dico)
+				return values
 		else :
 			errorMsg = "A cursor has not been created to the {0} database server".format(self) 
 			logging.error(errorMsg)
-			return ErrorClass(errorMsg)	
+			return ErrorClass(errorMsg) 
 
 	def getCompleteVersion (self):
 		'''
@@ -179,7 +185,32 @@ class Mssql ():
 		if self.completeVersion == None : 
 				self.completeVersion = self.getCompleteVersion()
 				return True
-		else : return False
+		else : 
+			return False
+		
+	def isThe2019Version (self):
+		'''
+		Return True if version 2019, else return False
+		'''
+		self.__loadCompleteVersionIfNeed__()
+		if self.MS2019_BANNER in self.completeVersion : return True
+		else: return False
+		
+	def isThe2017Version (self):
+		'''
+		Return True if version 2017, else return False
+		'''
+		self.__loadCompleteVersionIfNeed__()
+		if self.MS2017_BANNER in self.completeVersion : return True
+		else: return False
+		
+	def isThe2016Version (self):
+		'''
+		Return True if version 2016, else return False
+		'''
+		self.__loadCompleteVersionIfNeed__()
+		if self.MS2016_BANNER in self.completeVersion : return True
+		else: return False
 		
 	def isThe2014Version (self):
 		'''
@@ -187,7 +218,7 @@ class Mssql ():
 		'''
 		self.__loadCompleteVersionIfNeed__()
 		if self.MS2014_BANNER in self.completeVersion : return True
-		else: return False	
+		else: return False
 
 	def isThe2012Version (self):
 		'''
@@ -195,7 +226,7 @@ class Mssql ():
 		'''
 		self.__loadCompleteVersionIfNeed__()
 		if self.MS2012_BANNER in self.completeVersion : return True
-		else: return False		
+		else: return False
 
 	def isThe2008Version (self):
 		'''
@@ -237,7 +268,35 @@ class Mssql ():
 			return data
 		else:
 			logging.debug("We are in the database {0}".format(name)) 
-			return True	
+			return True
+			
+	def __isCurrentUser__(self, roleName):
+		'''
+		Returns True if current user has roleName
+		Otherwise return False
+		If error, return Exception
+		'''
+		REQ = "SELECT is_srvrolemember('{0}') as role".format(roleName)
+		logging.info("Checking if the current user is {0}".format(roleName))
+		data = self.executeRequest(REQ,ld=['role'])
+		if isinstance(data,Exception): 
+			logging.warning("Impossible to known if the user has {0} role: {1}".format(roleName, data))
+			return data
+		else:
+			for e in data: 
+				if e['role']==0:
+					logging.debug("The current user is not {0}".format(roleName))
+					return False
+				elif e['role']==1:
+					logging.debug("The current user is {0}".format(roleName))
+					return True
+				else:
+					msg = "Impossible to known if the user has {0} because the result is not 1 or 0. The result is '{1}'".format(roleName, e['issysadmin'])
+					logging.warning(msg)
+					return ErrorClass(msg)
+			msg = "Impossible to known if the user has {0} because the result is empty"
+			logging.warning(msg)
+			return ErrorClass(msg)
 
 	def isCurrentUserSysadmin(self):
 		'''
@@ -245,27 +304,72 @@ class Mssql ():
 		Otherwise return False
 		If error, return Exception
 		'''
-		logging.info("Checking if the current user is sysadmin")
-		data = self.executeRequest(self.REQ_IS_SYSADMIN,ld=['issysadmin'])
-		if isinstance(data,Exception): 
-			logging.warning("Impossible to known if the user is sysadmin: {0}".format(data))
-			return data
-		else:
-			for e in data: 
-				if e['issysadmin']==0:
-					logging.debug("The current user is not SYSADMIN")
-					return False
-				elif e['issysadmin']==1:
-					logging.debug("The current user is SYSADMIN")
-					return True
-				else:
-					msg = "Impossible to known if the user is sysadmin because the result is not 1 or 0. The result is '{0}'".format(e['issysadmin'])
-					logging.warning(msg)
-					return ErrorClass(msg)
-			msg = "Impossible to known if the user is sysadmin because the result is empty"
-			logging.warning(msg)
-			return ErrorClass(msg)
-			
+		return self.__isCurrentUser__('sysadmin')
+		
+	def isCurrentUserServeradmin(self):
+		'''
+		Returns True if current user is serveradmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('serveradmin')
+		
+	def isCurrentUserDbcreator(self):
+		'''
+		Returns True if current user is dbcreator
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('dbcreator')
+		
+	def isCurrentUserSetupadmin(self):
+		'''
+		Returns True if current user is setupadmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('setupadmin')
+		
+	def isCurrentUserBulkadmin(self):
+		'''
+		Returns True if current user is bulkadmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('bulkadmin')
+	
+	def isCurrentUserSecurityadmin(self):
+		'''
+		Returns True if current user is securityadmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('securityadmin')
+	
+	def isCurrentUserDiskadmin(self):
+		'''
+		Returns True if current user is diskadmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('diskadmin')
+
+	def isCurrentUserPublic(self):
+		'''
+		Returns True if current user is public
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('public')
+		
+	def isCurrentUserProcessadmin(self):
+		'''
+		Returns True if current user is processadmin
+		Otherwise return False
+		If error, return Exception
+		'''
+		return self.__isCurrentUser__('processadmin')
+
 	def getCurrentUser(self):
 		'''
 		Returns the current user name
@@ -332,3 +436,37 @@ class Mssql ():
 			msg = "Impossible to get the current database name because the result is empty"
 			logging.warning(msg)
 			return ErrorClass(msg)
+			
+	def getUsernamesViaSyslogins(self):
+		'''
+		Get all usernames from the syslogins table
+		Returns list of usernames of no problem. Otherwise returns an exception
+		'''
+		QUERY = "SELECT name FROM master..syslogins"
+		logging.info('Get all usernames from the syslogins table...')
+		response = self.executeRequest(request=QUERY,ld=['username'])
+		if isinstance(response,Exception) :
+			logging.info('Error with the SQL request {0}: {1}'.format(QUERY,str(response)))
+			return response
+		else:
+			allUsernames = []
+			if response == []: 
+				pass
+			else:
+				for e in response : 
+					allUsernames.append(e['username']) 
+			return allUsernames
+			
+	def getSysloginsInformation(self):
+		'''
+		Get information from sys.syslogins
+		Returns list of dict or expection if an error
+		'''
+		QUERY = "SELECT * FROM master..syslogins"
+		logging.info('Get info from syslogins table...')
+		response = self.executeRequest(request=QUERY,ld=[], noResult=False, autoLD=True)
+		if isinstance(response,Exception) :
+			logging.info('Error with the SQL request {0}: {1}'.format(QUERY,str(response)))
+			return response
+		else:
+			return response
